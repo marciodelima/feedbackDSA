@@ -1,0 +1,161 @@
+---
+title: "Projeto 1 - FeedBack -> Analise Fraudulenta de Clicks"
+author: "Marcio de Lima"
+date: "15 de maio de 2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Analise Fraudulenta de Clicks
+
+Em resumo, neste projeto, construi um modelo de aprendizado de máquina que determinar se um clique é fraudulento ou não.
+
+## Dicionario de Dados - Descricao das Colunas
+* ip: ip address of click.
+* app: app id for marketing.
+* device: device type id of user mobile phone (e.g., iphone 6 plus, iphone 7, huawei mate 7, etc.)
+* os: os version id of user mobile phone
+* channel: channel id of mobile ad publisher
+* click_time: timestamp of click (UTC)
+* attributed_time: if user download the app for after clicking an ad, this is the time of the app download
+* is_attributed: the target that is to be predicted, indicating the app was downloaded
+
+## Definindo o tipo Modelo de Machine Learning
+Baseado no problema de negocio informado acima, será criado um modelo do tipo de Classificacao de Machine Learning de Aprendizado Supervisionado.
+
+## Etapa Inicial - Carregando as bibliotecas e classes utilitarias
+
+```{r utilidades e bibliotecas}
+library(data.table)
+library(caret)
+library(dplyr)
+library(ggplot2)
+library(caTools)
+library(randomForest)
+library(e1071)
+library(ROSE)
+library(rpart)
+library(ROCR)
+
+source("Utils.R")
+
+```
+
+## Etapa 1 - Coletando os Dados
+
+Aqui está a coleta de dados, neste caso um arquivo csv.
+
+```{r coleta}
+#Carregando os dados
+df <- fread("dataset/train_sample.csv", header = T, sep = ",", stringsAsFactors = FALSE)
+
+```
+
+## Etapa 2 - Data Muning
+Arrumando os dados
+
+```{r arrumando}
+colunasFator <- c("is_attributed")
+df <- to.factors(df, colunasFator)
+df$click_time <- get_asPOSIXct(df, 6)
+df$attributed_time <- get_asPOSIXct(df, 7)
+
+
+```
+
+Limpando a coluna ID, sem utilidade. 
+Obs.: Poderiamos criar faixas pelo IP quebrando numa nova coluna de PAIS de origem, mas fica pro futuro. 
+
+```{r limpa}
+df$ip <- NULL
+
+```
+
+Tratamento dos Campos NA's. Decisão de colocar a mesma Data do click_time
+
+```{r limpa2}
+df$attributed_time <- ifelse(is.na(df$attributed_time), df$click_time, df$attributed_time)
+df$attributed_time <- as.POSIXct(as.integer(df$attributed_time), origin = "1970-01-01")       
+
+```
+
+Balanceamento da Variavel TARGET - Variavel TARGET sem balanceamento, modelo sera tendencioso dessa forma
+```{r balanceamento}
+table(df$is_attributed)
+
+df2 = ovun.sample(is_attributed ~ . , data = df, method = "both", p=0.5)$data
+table(df2$is_attributed)
+
+
+```
+
+## Etapa 3 - Feature Selection
+Mapeando as melhores variaveis para o modelo preditivo
+```{r variavel}
+modeloSel <- randomForest(is_attributed ~ . , 
+                          data = df2, 
+                          ntree = 15, 
+                          nodesize = 10,
+                          importance = TRUE)
+varImpPlot(modeloSel)
+
+```
+
+Decisao de modelar com as variaveis: "app","channel", "os"
+
+## Etapa 4 - Split de dados
+Split de dados
+```{r split}
+# Funcao para gerar dados de treino e dados de teste
+indice = sample.split(df2, SplitRatio = 0.7)
+
+# Gerando dados de treino e de teste - Separando os dados
+dados_treino <- df2[indice==TRUE,]
+dados_teste <- df2[indice==FALSE,]
+class1 <- dados_teste$is_attributed
+dados_teste$is_attributed <- NULL
+
+```
+
+## Etapa 5 - Modelo
+Foram realizados vários testes com vários algoritmos, o melhor modelo e algoritmo segue abaixo
+
+```{r modelo}
+formula.full <- "is_attributed  ~ ." 
+formula.full <- as.formula(formula.full)
+
+modelo_rf_v3 = rpart(formula.full, 
+                     data = dados_treino, control = rpart.control(cp = .0005)) 
+
+
+class3 <- predict(modelo_rf_v3, dados_teste, type='class')
+
+
+```
+
+## Etapa 6 - Avaliação do Modelo
+Avaliando o modelo -> 99% de Acuraria => Melhor modelo comparando com SVM e com Random Forest com as variavéis selecionadas. 
+
+```{r avaliacao}
+
+confusionMatrix(class3, class1)
+
+```
+## Etapa 7 - Comparacao
+Tabela Comparativa
+
+* svm com kernel polynomial           => 62%
+* glm com binomial                    => 72%
+* svm com kernel radial               => 85%
+* rpart com as variáveis selecionadas => 97%
+* rpart com todas as variáveis        => 99%
+
+
+Muito Obrigado. 
+
+Att.
+
+Marcio de Lima
